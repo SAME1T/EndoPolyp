@@ -1,0 +1,14 @@
+torch
+torchvision
+torchaudio
+timm
+einops
+opencv-python
+numpy
+albumentations==1.4.3
+scikit-image
+pillow
+matplotlib
+tqdm
+pyyaml
+pandas

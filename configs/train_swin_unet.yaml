@@ -1,0 +1,14 @@
+model:
+  name: swin_unet
+  in_channels: 3
+  num_classes: 1
+  img_size: 512
+  pretrained: true
+
+train:
+  epochs: 100
+  batch_size: 4
+  lr: 1e-4
+  weight_decay: 1e-4
+  loss: bce_dice
+  aug: light

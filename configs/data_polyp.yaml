@@ -1,0 +1,8 @@
+data_root: data/raw
+train_images:
+  - Kvasir-SEG/images
+  - CVC-ClinicDB/images
+train_masks:
+  - Kvasir-SEG/masks
+  - CVC-ClinicDB/masks
+image_size: [512, 512]

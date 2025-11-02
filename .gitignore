@@ -1,0 +1,18 @@
+# Python/venv
+env/
+.venv/
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+*.log
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+
+# Data & outputs
+data/raw/*
+!data/raw/.gitkeep
+runs/
+outputs/
+weights/
