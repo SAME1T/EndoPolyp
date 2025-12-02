@@ -109,6 +109,8 @@ def split_pairs(pairs, val_ratio=0.2, seed=42):
 # -------------------------------
 # Eğitim
 # -------------------------------
+import contextlib
+
 def train_one_epoch(model, loader, optimizer, scaler, device, loss_fn):
     model.train()
     epoch_loss = 0.0
@@ -117,20 +119,22 @@ def train_one_epoch(model, loader, optimizer, scaler, device, loss_fn):
         imgs = batch["image"].to(device, non_blocking=True)
         gts  = batch["mask"].to(device, non_blocking=True)
 
+        # GPU'da channels_last belleğe geç (hız için)
+        if device.type == "cuda":
+            imgs = imgs.to(memory_format=torch.channels_last)
+
         optimizer.zero_grad(set_to_none=True)
 
-        # AMP ile ileri + kayıp
-        use_cuda = (device.type == "cuda")
-        ctx = torch.autocast(device_type="cuda" if use_cuda else "cpu", dtype=torch.float16)
+        use_amp = (device.type == "cuda")
+        ctx = torch.autocast('cuda', dtype=torch.float16) if use_amp else contextlib.nullcontext()
         with ctx:
             logits = model(imgs)
             loss = loss_fn(logits, gts)
 
-        # Doğru AMP akışı:
         if scaler is not None:
-            scaler.scale(loss).backward()   # önce backward
-            scaler.step(optimizer)          # sonra optimizer.step
-            scaler.update()                 # en sonda scaler.update
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
         else:
             loss.backward()
             optimizer.step()
@@ -139,6 +143,7 @@ def train_one_epoch(model, loader, optimizer, scaler, device, loss_fn):
         pbar.set_postfix(loss=f"{loss.item():.4f}")
 
     return epoch_loss / max(1, len(loader))
+
 
 
 @torch.no_grad()
@@ -164,6 +169,7 @@ def main():
     ap.add_argument("--seed",       type=int, default=42)
     ap.add_argument("--val_ratio",  type=float, default=0.2)  # %20 doğrulama
     ap.add_argument("--early_stop_patience", type=int, default=0)  # 0 = kapalı
+    ap.add_argument("--val_every", type=int, default=1)  # her epoch doğrula (1). Hızı artırmak için 2-3 yap.
     args = ap.parse_args()
 
     # ---------------- load configs ----------------
@@ -219,8 +225,7 @@ def main():
     else:
         print(">> CPU MODE")
 
-        # --- DataLoader hız ayarları ---
-# Dinamik worker sayısı (Windows dâhil), GPU'da pin_memory aç
+    # --- DataLoader hız ayarları ---
     max_w = os.cpu_count() or 4
     num_workers = max(2, min(8, max_w - 1))
     persist = num_workers > 0
@@ -247,8 +252,7 @@ def main():
     )
     print(f">> DataLoader workers={num_workers} | prefetch={(2 if persist else 0)} | pin_memory={pin}")
 
-
-
+      
     # ---------------- optim ----------------
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
     scaler = torch.amp.GradScaler('cuda') if device.type == "cuda" else None
@@ -269,7 +273,15 @@ def main():
     for epoch in range(1, epochs+1):
         print(f"\nEpoch {epoch}/{epochs}")
         tr_loss = train_one_epoch(model, dl_tr, optimizer, scaler, device, loss_fn)
-        va_dice, va_iou = validate(model, dl_va, device)
+
+        do_val = (epoch % args.val_every == 0)
+        if do_val:
+            va_dice, va_iou = validate(model, dl_va, device)
+            print(f"train_loss: {tr_loss:.4f}  |  val_dice: {va_dice:.4f}  val_iou: {va_iou:.4f}")
+        else:
+            va_dice, va_iou = -1.0, -1.0
+            print(f"train_loss: {tr_loss:.4f}  |  (val atlandı, val_every={args.val_every})")
+
 
         start = time.time()
         print(f"train_loss: {tr_loss:.4f}  |  val_dice: {va_dice:.4f}  val_iou: {va_iou:.4f}")
@@ -290,16 +302,17 @@ def main():
 
 
         torch.save({"model": model.state_dict()}, weights_dir / "last.pt")
-        if va_dice > best_dice:
+        if do_val and va_dice > best_dice:
             best_dice = va_dice
             torch.save({"model": model.state_dict()}, weights_dir / "best.pt")
             print(f"[+] best.pt güncellendi (dice={best_dice:.4f})")
             wait = 0
-        else:
+        elif do_val:
             wait += 1
             if patience > 0 and wait >= patience:
                 print(f"[EarlyStopping] {patience} epoch iyileşme yok, duruyoruz.")
                 break
+
 
 
     dur = time.time() - start
