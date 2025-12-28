@@ -47,6 +47,23 @@ def build_model(train_cfg, device):
     model.to(device)
     return model
 
+def make_blocks(css: str):
+    """
+    Eski Gradio sürümleri theme parametresini desteklemez.
+    Bu fonksiyon yeni sürümde theme kullanır, eskide otomatik kapatır.
+    """
+    # Yeni gradio + theme varsa dene
+    try:
+        if hasattr(gr, "themes") and hasattr(gr.themes, "Soft"):
+            return gr.Blocks(theme=gr.themes.Soft(), css=css)
+    except TypeError:
+        pass
+    except Exception:
+        pass
+
+    # Eski gradio fallback
+    return gr.Blocks(css=css)
+
 
 def main():
     # ----------------- argümanlar -----------------
